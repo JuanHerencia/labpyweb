@@ -1,9 +1,79 @@
 from django.shortcuts import render
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.decorators import login_required, permission_required
 # En la vista se debe considera el modelo que se va usar
 from .models import Cliente
 
+def user_login(request):
+    # Si ya esta autenticado, enviarlo a home
+    if request.user.is_authenticated:
+        return redirect('home')
+    
+    # Si no está autenticado pedir usuario y clave
+    if request.method == 'POST':
+        username = request.POST.get('username')
+        password = request.POST.get('password')
+
+        if username and password:
+            user = authenticate(request, username=username, password=password)  
+            if user is not None:
+                login(request, user)
+                return redirect('home')
+            else:
+                messages.error(request, 'Error de usuario o clave')
+        else:
+            messages.error(request, 'Ingrese los datos')
+
+    # Si hay falla de autenticación, permitir reintentar
+    return render(request, 'venta/login.html')
+
+
+# Vista principal del sistema
+@login_required
+def home(request):
+    # Obtener los permisos
+    user_permissions = {
+        'can_manage_clients' : (
+            request.user.is_superuser or
+            request.user.groups.filter(name='grp_cliente').exists() or
+            request.user.has_perm('venta.add_cliente')
+        ),
+        'can_manage_products' : (
+            request.user.is_superuser or
+            request.user.groups.filter(name='grp_producto').exists()
+        ),
+         'can_manage_providers' : (
+            request.user.is_superuser or
+            request.user.groups.filter(name='grp_proveedor').exists()
+        ),
+        'is_admin' : request.user.is_superuser
+    }
+
+    context = {
+        'user_permissions' : user_permissions,
+        'user' : request.user
+    }
+
+    return render(request, 'venta/home.html', context)
+
+# implementación de logout
+def user_logout(request):
+    logout(request)
+    messages.success(request, 'Sesion cerrada correctamente')
+    return redirect('login')
+
+from django.http import HttpResponseForbidden
+
 # consulta_clientes es la vista que muestra la lista
+@login_required
+@permission_required('venta.view_cliente', raise_exception=True)
 def consulta_clientes(request):
+    # verificar los permisos
+    if not (request.user.is_superuser or
+            request.user.groups.filter(name = 'grp_cliente').exists() or
+            request.user.has_perm('venta.view_cliente')):
+        return HttpResponseForbidden('No tiene permisos para ingresar aquí')
+
     # Se requiere obtner los datos a gestionar
     #clientes = Cliente.objects.all().order_by('ape_nom') # la data es la que se requiera 
     clientes = Cliente.objects.all().order_by('id_cliente') # la data es la que se requiera 
